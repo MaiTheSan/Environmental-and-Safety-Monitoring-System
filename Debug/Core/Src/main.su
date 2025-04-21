@@ -1,0 +1,17 @@
+../Core/Src/main.c:89:10:extract_uint16	16	static
+../Core/Src/main.c:98:9:verify_pms7003_checksum	32	static
+../Core/Src/main.c:115:9:read_pms7003	24	static
+../Core/Src/main.c:171:6:delay_us	16	static
+../Core/Src/main.c:176:6:DHT_SetPinOutput	32	static
+../Core/Src/main.c:184:6:DHT_SetPinInput	32	static
+../Core/Src/main.c:194:6:DHT11_Start	8	static
+../Core/Src/main.c:204:6:DHT11_Init	32	static
+../Core/Src/main.c:216:9:DHT_Read	24	static
+../Core/Src/main.c:251:5:main	56	static
+../Core/Src/main.c:424:6:SystemClock_Config	88	static
+../Core/Src/main.c:471:13:MX_I2C1_Init	8	static
+../Core/Src/main.c:505:13:MX_TIM1_Init	32	static
+../Core/Src/main.c:551:13:MX_USART1_UART_Init	8	static
+../Core/Src/main.c:584:13:MX_USART2_UART_Init	8	static
+../Core/Src/main.c:617:13:MX_GPIO_Init	48	static
+../Core/Src/main.c:661:6:Error_Handler	4	static,ignoring_inline_asm

@@ -1,0 +1,17 @@
+../Core/Src/main.c:89:10:extract_uint16	1
+../Core/Src/main.c:98:9:verify_pms7003_checksum	2
+../Core/Src/main.c:115:9:read_pms7003	6
+../Core/Src/main.c:171:6:delay_us	2
+../Core/Src/main.c:176:6:DHT_SetPinOutput	1
+../Core/Src/main.c:184:6:DHT_SetPinInput	1
+../Core/Src/main.c:194:6:DHT11_Start	1
+../Core/Src/main.c:204:6:DHT11_Init	1
+../Core/Src/main.c:216:9:DHT_Read	9
+../Core/Src/main.c:251:5:main	6
+../Core/Src/main.c:424:6:SystemClock_Config	3
+../Core/Src/main.c:471:13:MX_I2C1_Init	2
+../Core/Src/main.c:505:13:MX_TIM1_Init	4
+../Core/Src/main.c:551:13:MX_USART1_UART_Init	2
+../Core/Src/main.c:584:13:MX_USART2_UART_Init	2
+../Core/Src/main.c:617:13:MX_GPIO_Init	1
+../Core/Src/main.c:661:6:Error_Handler	1
