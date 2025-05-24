@@ -1,3 +1,0 @@
-../Core/Src/pms7003m.c:8:6:PMS7003M_Init	16	static
-../Core/Src/pms7003m.c:16:17:pms_calculate_checksum	24	static
-../Core/Src/pms7003m.c:24:6:PMS7003M_Read	24	static

@@ -22,32 +22,51 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "a7680c.h"
-//#include "pms7003m.h"
+#include "ws2812b.h"  // Add this new include
 #include "ssd1306.h"
 #include "ssd1306_fonts.h"
 #include <stdio.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef enum {
+    STATE_NORMAL = 0,
+    STATE_INTERRUPT,
+	STATE_HOUSEFIRE
+} SystemState;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define DHT11_PORT GPIOB
-#define DHT11_PIN GPIO_PIN_6
+#define DHT11_PORT GPIOA
+#define DHT11_PIN GPIO_PIN_4
 
-uint8_t pms_buffer[32];
-char display_line[32];
+#define PMS_FRAME_LENGTH 32  // PMS7003 truyền mỗi lần 32 byte
+#define PMS_HEADER_HIGH   0x42
+#define PMS_HEADER_LOW    0x4D
+
+// WS2812B definitions
+#define WS2812B_PORT GPIOA
+#define WS2812B_PIN GPIO_PIN_6
+#define WS2812B_NUM_LEDS 12
+
+#define ADC_TIMEOUT      10
+#define ADC_FIRE_THRESH  4000
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
 
+volatile SystemState currentState = STATE_NORMAL;
+
+
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+
 I2C_HandleTypeDef hi2c1;
 
 TIM_HandleTypeDef htim1;
@@ -56,117 +75,32 @@ UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
-extern UART_HandleTypeDef huart2;
+uint8_t temp = 0, hum = 0;
+char buffer[32];
+
+uint8_t pms_rx_byte;
+uint8_t pms_rx_buffer[PMS_FRAME_LENGTH];
+uint8_t pms_index = 0;
+uint32_t adc_val;
+volatile bool pms_ready_flag = false;
+
 A7680C_Handle sim4g;
-
-//extern UART_HandleTypeDef huart1;
-//PMS7003M_Handle pms;
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
-static void MX_TIM1_Init(void);
-static void MX_USART2_UART_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_USART2_UART_Init(void);
+static void MX_TIM1_Init(void);
+static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-//uint8_t Rh_byte1, Rh_byte2, Temp_byte1, Temp_byte2;
-//uint16_t SUM, RH, TEMP;
-//
-//float Temperature = 0;
-//float Humidity = 0;
-//uint8_t Presence = 0;
-
-/*********************************** PMS7003 FUNCTIONS ********************************************/
-
-uint16_t extract_uint16(uint8_t *data, uint8_t high_idx) {
-    return (data[high_idx] << 8) | data[high_idx + 1];
-}
-
-/**
- * Calculate and verify PMS7003 checksum
- * @param data    Buffer containing PMS7003 data (32 bytes)
- * @return        1 if checksum is valid, 0 otherwise
- */
-uint8_t verify_pms7003_checksum(uint8_t *data) {
-    uint16_t checksum = 0;
-    // Sum bytes 0 to 29
-    for (int i = 0; i < 30; i++) {
-        checksum += data[i];
-    }
-
-    // Extract checksum from bytes 30-31
-    uint16_t received_checksum = extract_uint16(data, 30);
-
-    return (checksum == received_checksum) ? 1 : 0;
-}
-
-/**
- * Read data from PMS7003 sensor and display on OLED
- * @return 1 if successful read, 0 if error
- */
-uint8_t read_pms7003(void) {
-    HAL_StatusTypeDef status;
-
-    // Receive data from UART with timeout
-    status = HAL_UART_Receive(&huart1, pms_buffer, 32, 1000);
-
-    if (status != HAL_OK) {
-        // Handle error based on status
-        if (status == HAL_TIMEOUT) {
-            ssd1306_SetCursor(0, 48);
-            ssd1306_WriteString("PMS: No response", Font_7x10, White);
-            ssd1306_UpdateScreen();
-        } else {
-            ssd1306_SetCursor(0, 48);
-            ssd1306_WriteString("PMS: UART Error", Font_7x10, White);
-            ssd1306_UpdateScreen();
-        }
-        return 0;
-    }
-
-    // Check for correct header (0x42, 0x4D)
-    if (pms_buffer[0] != 0x42 || pms_buffer[1] != 0x4D) {
-        ssd1306_SetCursor(0, 48);
-        ssd1306_WriteString("PMS: Invalid header", Font_7x10, White);
-        ssd1306_UpdateScreen();
-        return 0;
-    }
-
-    // Verify checksum
-    if (!verify_pms7003_checksum(pms_buffer)) {
-        ssd1306_SetCursor(0, 48);
-        ssd1306_WriteString("PMS: Checksum error", Font_7x10, White);
-        ssd1306_UpdateScreen();
-        return 0;
-    }
-
-    // Extract PM values (standard particle values at indices 10, 12, 14)
-    uint16_t pm1_0 = extract_uint16(pms_buffer, 10);
-    uint16_t pm2_5 = extract_uint16(pms_buffer, 12);
-    uint16_t pm10 = extract_uint16(pms_buffer, 14);
-
-    // Print to OLED
-    ssd1306_SetCursor(0, 48);
-    snprintf(display_line, sizeof(display_line), "PM1.0   PM2.5   PM10");
-    ssd1306_WriteString(display_line, Font_7x10, White);
-
-    ssd1306_SetCursor(0, 58); // Next line
-    snprintf(display_line, sizeof(display_line), "%2d-%2d-%2d", pm1_0, pm2_5, pm10);
-    ssd1306_WriteString(display_line, Font_7x10, White);
-
-    return 1;
-}
-
-
 /*********************************** DHT11 PRE FUNCTIONS ********************************************/
 
 void delay_us (uint16_t us)
@@ -217,32 +151,170 @@ void DHT11_Init(void) {
 uint8_t DHT_Read(uint8_t* temperature, uint8_t* humidity) {
     uint8_t data[5] = {0};
     uint8_t i, j;
+    uint16_t timeout;
 
     // Start Signal
     DHT11_Start();
 
-    if (HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN)) return 1;
-    delay_us(80);
-    if (!HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN)) return 2;
-    delay_us(80);
+    // Wait for DHT11 response (should go LOW)
+    timeout = 0;
+    while (HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN)) {
+        delay_us(1);
+        timeout++;
+        if (timeout > 100) return 1; // Timeout waiting for response
+    }
 
-    // Read 40 bits
+    // Wait for DHT11 to pull up (80us LOW expected)
+    timeout = 0;
+    while (!HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN)) {
+        delay_us(1);
+        timeout++;
+        if (timeout > 100) return 2; // Timeout waiting for pull up
+    }
+
+    // Wait for DHT11 to pull down (80us HIGH expected)
+    timeout = 0;
+    while (HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN)) {
+        delay_us(1);
+        timeout++;
+        if (timeout > 100) return 3; // Timeout waiting for pull down
+    }
+
+    // Read 40 bits with better timeout handling
     for (j = 0; j < 5; j++) {
         for (i = 0; i < 8; i++) {
-            while (!HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN));
+            // Wait for rising edge (signal start)
+            timeout = 0;
+            while (!HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN)) {
+                delay_us(1);
+                timeout++;
+                if (timeout > 60) return 4; // Timeout during bit start
+            }
+
+            // Wait ~40us and check pin state
             delay_us(40);
+
             if (HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN))
                 data[j] |= (1 << (7 - i));
-            while (HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN));
+
+            // Wait for falling edge (end of bit)
+            timeout = 0;
+            while (HAL_GPIO_ReadPin(DHT11_PORT, DHT11_PIN)) {
+                delay_us(1);
+                timeout++;
+                if (timeout > 70) return 5; // Timeout during bit end
+            }
         }
     }
 
-    if (data[4] != ((data[0] + data[1] + data[2] + data[3]) & 0xFF)) return 3;
+    // Verify checksum
+    if (data[4] != ((data[0] + data[1] + data[2] + data[3]) & 0xFF)) return 6;
 
     *humidity = data[0];
     *temperature = data[2];
     return 0;
 }
+
+/*********************************** PMS7003 FUNCTIONS ********************************************/
+
+uint16_t extract_uint16(uint8_t *data, uint8_t index) {
+    return ((uint16_t)data[index] << 8) | data[index + 1];
+}
+
+void parse_and_display_pms_data(uint8_t *data) {
+    uint16_t pm1_0 = extract_uint16(data, 4);
+    uint16_t pm2_5 = extract_uint16(data, 6);
+    uint16_t pm10  = extract_uint16(data, 8);
+
+    // Đánh dấu đã nhận được frame hợp lệ đầu tiên
+    pms_ready_flag = true;
+
+    // Chỉ cập nhật 3 dòng dữ liệu, tránh làm nhấp nháy toàn màn hình
+    char line1[22], line2[22], line3[22];
+    snprintf(line1, sizeof(line1), "PM1.0 : %4u ug/m3", pm1_0);
+    snprintf(line2, sizeof(line2), "PM2.5 : %4u ug/m3", pm2_5);
+    snprintf(line3, sizeof(line3), "PM10  : %4u ug/m3", pm10);
+
+    // Xóa vùng 3 dòng (nếu cần) bằng cách viết khoảng trắng
+    ssd1306_FillRectangle(0, 0, 127, 33, Black);
+
+
+    // Viết lại dữ liệu mới
+    ssd1306_SetCursor(0, 0);
+    ssd1306_WriteString(line1, Font_7x10, White);
+    ssd1306_SetCursor(0, 12);
+    ssd1306_WriteString(line2, Font_7x10, White);
+    ssd1306_SetCursor(0, 24);
+    ssd1306_WriteString(line3, Font_7x10, White);
+
+    ssd1306_UpdateScreen();
+}
+/**
+ * @brief  Kiểm tra header + checksum của frame PMS7003, đồng thời align lại buffer nếu cần.
+ * @param  buf: con trỏ đến buffer kích thước PMS_FRAME_LENGTH
+ * @param  len: độ dài frame (32)
+ * @retval true nếu frame hợp lệ, false nếu phải tìm frame tiếp theo
+ */
+bool check_and_align_pms_frame(uint8_t *buf, uint8_t len) {
+    // 1) Kiểm tra header
+    if (buf[0] != PMS_HEADER_HIGH || buf[1] != PMS_HEADER_LOW) {
+        // Tìm vị trí header mới trong buffer
+        for (int i = 1; i < len - 1; i++) {
+            if (buf[i] == PMS_HEADER_HIGH && buf[i+1] == PMS_HEADER_LOW) {
+                uint8_t remain = len - i;
+                memmove(buf, buf + i, remain);
+                pms_index = remain;
+                return false;
+            }
+        }
+        // không tìm được header, reset index
+        pms_index = 0;
+        return false;
+    }
+
+    // 2) Tính checksum
+    uint16_t calculated = 0;
+    for (int i = 0; i < len - 2; i++) {
+        calculated += buf[i];
+    }
+    uint16_t received = extract_uint16(buf, len - 2);
+    if (calculated != received) {
+        // checksum sai -> tìm header mới
+        for (int i = 1; i < len - 1; i++) {
+            if (buf[i] == PMS_HEADER_HIGH && buf[i+1] == PMS_HEADER_LOW) {
+                uint8_t remain = len - i;
+                memmove(buf, buf + i, remain);
+                pms_index = remain;
+                return false;
+            }
+        }
+        pms_index = 0;
+        return false;
+    }
+
+    // Frame hợp lệ
+    return true;
+}
+
+
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+    if (huart->Instance == USART1) {
+        pms_rx_buffer[pms_index++] = pms_rx_byte;
+
+        if (pms_index >= PMS_FRAME_LENGTH) {
+            if (check_and_align_pms_frame(pms_rx_buffer, PMS_FRAME_LENGTH)) {
+                parse_and_display_pms_data(pms_rx_buffer);
+                pms_index = 0;
+            }
+            // nếu không hợp lệ, pms_index đã được điều chỉnh bên trong hàm
+        }
+
+        HAL_UART_Receive_IT(&huart1, &pms_rx_byte, 1);
+    }
+}
+
+
 /* USER CODE END 0 */
 
 /**
@@ -253,10 +325,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-//	float tempf = 0, humf = 0;
-	uint8_t temp = 0, hum = 0;
-	uint8_t status;
-	char buffer[32];
+
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -278,21 +347,21 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_I2C1_Init();
-  MX_TIM1_Init();
-  MX_USART2_UART_Init();
   MX_USART1_UART_Init();
+  MX_USART2_UART_Init();
+  MX_TIM1_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
-  HAL_TIM_Base_Start(&htim1);  // for us Delay
+  WS2812B_Init(WS2812B_PORT, WS2812B_PIN);
 
+  // Initial test pattern - light up all LEDs in rainbow pattern
+  WS2812B_Rainbow(WS2812B_PORT, WS2812B_PIN, WS2812B_NUM_LEDS);
+  HAL_Delay(1000);
 
-  A7680C_Init(&sim4g, &huart2);
-//  PMS7003M_Init(&pms, &huart1);
+  // Set all LEDs to red initially
+  WS2812B_SetAllLEDs(WS2812B_PORT, WS2812B_PIN, RED, WS2812B_NUM_LEDS);
 
-
-
-  //set rgb to white
-  DHT11_Init();
-
+  // Set tất cả là màu đỏ
   ssd1306_Init();
   ssd1306_SetCursor(0, 0);
   ssd1306_WriteString("Initialize", Font_7x10, White);
@@ -343,18 +412,33 @@ int main(void)
   ssd1306_UpdateScreen();
   HAL_Delay(500);
 
+
+  HAL_TIM_Base_Start(&htim1); // Bắt đầu Timer cho delay_us
+  DHT11_Init();
+  A7680C_Init(&sim4g, &huart2);
+
   if (DHT_Read(&temp, &hum) == 0){
 	  ssd1306_SetCursor(0, 18);
 	  ssd1306_WriteString("DHT11           OK", Font_7x10, White);
 	  ssd1306_UpdateScreen();
-	  //set nó màu xanh
+      // Update LED status - first 3 LEDs green
+      RGB_Color ledStatus[WS2812B_NUM_LEDS] = {0};
+      for (int i = 0; i < 3; i++) ledStatus[i] = GREEN;
+      for (int i = 3; i < WS2812B_NUM_LEDS; i++) ledStatus[i] = RED;
+      WS2812B_SetLED(WS2812B_PORT, WS2812B_PIN, ledStatus, WS2812B_NUM_LEDS);
 	  HAL_Delay(500);
   }
+
+
   if (A7680C_SendCommand(&sim4g, "AT", "OK", 1000)) {
 	  ssd1306_SetCursor(0, 28);
 	  ssd1306_WriteString("A7680c          OK", Font_7x10, White);
 	  ssd1306_UpdateScreen();
-	  //set nó màu xanh
+      // Update LED status - next 3 LEDs green
+      RGB_Color ledStatus[WS2812B_NUM_LEDS] = {0};
+      for (int i = 0; i < 6; i++) ledStatus[i] = GREEN;
+      for (int i = 6; i < WS2812B_NUM_LEDS; i++) ledStatus[i] = RED;
+      WS2812B_SetLED(WS2812B_PORT, WS2812B_PIN, ledStatus, WS2812B_NUM_LEDS);
 	  HAL_Delay(500);
   }
   if (A7680C_CheckSIMReady(&sim4g)) {
@@ -362,32 +446,28 @@ int main(void)
 	  ssd1306_SetCursor(0, 38);
 	  ssd1306_WriteString("SIM card        OK", Font_7x10, White);
 	  ssd1306_UpdateScreen();
-	  //set nó màu xanh
+      // Update LED status - next 3 LEDs green
+      RGB_Color ledStatus[WS2812B_NUM_LEDS] = {0};
+      for (int i = 0; i < 9; i++) ledStatus[i] = GREEN;
+      for (int i = 9; i < WS2812B_NUM_LEDS; i++) ledStatus[i] = RED;
+      WS2812B_SetLED(WS2812B_PORT, WS2812B_PIN, ledStatus, WS2812B_NUM_LEDS);
 	  HAL_Delay(500);
   }
-  if (read_pms7003()) {
-	  ssd1306_SetCursor(0, 48);
-	  ssd1306_WriteString("PMS7003         OK", Font_7x10, White);
-	  ssd1306_UpdateScreen();
-	  //set nó màu xanh
-	  HAL_Delay(500);
-  }
-  if (A7680C_SendSMS(&sim4g, "0848177013", "Hello from STM32!")) {
+  if (A7680C_SendSMS(&sim4g, "0848177013", "SMS Check OK")) {
       // success
   }
 
-  HAL_Delay(500);
 
-//  else if(DHT_Read(&temp, &hum) == 1){
-//  {
-//	  ssd1306_SetCursor(0, 18);
-//	  ssd1306_WriteString("DHT11        ERROR", Font_7x10, White);
-//	  ssd1306_UpdateScreen();
-//	  HAL_Delay(1000);
-//  }
-
-
-
+  if (HAL_UART_Receive(&huart1, &pms_rx_byte, 1, 10) == HAL_OK) {
+      // Có dữ liệu nhận được -> Hiển thị thông báo OK
+      ssd1306_SetCursor(0, 48);
+      ssd1306_WriteString("PMS7003         OK", Font_7x10, White);
+      ssd1306_UpdateScreen();
+	  //set 3 đèn cuối màu xanh
+      WS2812B_SetAllLEDs(WS2812B_PORT, WS2812B_PIN, GREEN, WS2812B_NUM_LEDS);
+      HAL_UART_Receive_IT(&huart1, &pms_rx_byte, 1);
+      HAL_Delay(500);
+  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -397,31 +477,136 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
-
-      ssd1306_Fill(Black);
-	  read_pms7003();
-      status = DHT_Read(&temp, &hum);
-
-      if (status == 0) {
-          sprintf(buffer, "Temp: %d C", temp);
-          ssd1306_SetCursor(0, 18);
-          ssd1306_WriteString(buffer, Font_7x10, White);
-
-          sprintf(buffer, "Humi: %d %%", hum);
-          ssd1306_SetCursor(0, 36);
-          ssd1306_WriteString(buffer, Font_7x10, White);
+      // ADC-based alarm check
+      HAL_ADC_Start(&hadc1);
+      if (HAL_ADC_PollForConversion(&hadc1, ADC_TIMEOUT) == HAL_OK) {
+          adc_val = HAL_ADC_GetValue(&hadc1);
+          if (adc_val > ADC_FIRE_THRESH) {
+              currentState = STATE_HOUSEFIRE;
+          }
       }
-      else {
-          ssd1306_SetCursor(0, 18);
-          ssd1306_WriteString("DHT11 Error!", Font_7x10, White);
+      HAL_ADC_Stop(&hadc1);
+
+      switch (currentState) {
+          case STATE_NORMAL:
+              // Normal periodic sensor update
+	    ssd1306_FillRectangle(0, 34, 127, 63, Black);
+
+	    // Try up to 3 times to get a valid reading
+	    uint8_t status = 255;
+	    uint8_t retry_count = 0;
+
+	    while (retry_count < 3 && status != 0) {
+	        status = DHT_Read(&temp, &hum);
+	        if (status != 0) {
+	            HAL_Delay(500); // Wait before retry
+	        }
+	        retry_count++;
+	    }
+
+	    if (status == 0) {
+	        sprintf(buffer, "Temp: %d C", temp);
+	        ssd1306_SetCursor(0, 36);
+	        ssd1306_WriteString(buffer, Font_7x10, White);
+	        sprintf(buffer, "Humi: %d %%", hum);
+	        ssd1306_SetCursor(0, 48);
+	        ssd1306_WriteString(buffer, Font_7x10, White);
+	        // Hiển thị giá trị ADC
+	        sprintf(buffer, "ADC : %lu", adc_val);
+	        ssd1306_SetCursor(0, 58);
+	        ssd1306_WriteString(buffer, Font_6x8, White);
+	    }
+	    else {
+	        ssd1306_SetCursor(0, 36);
+	        sprintf(buffer, "DHT11 Error: %d", status);
+	        ssd1306_WriteString(buffer, Font_7x10, White);
+	    }
+	    ssd1306_UpdateScreen();
+        RGB_Color statusColor;
+        if (temp < 25) statusColor = GREEN;       // Cool
+        else if (temp < 30) statusColor = YELLOW; // Moderate
+        else statusColor = RED;                   // Hot
+        WS2812B_SetAllLEDs(WS2812B_PORT, WS2812B_PIN, statusColor, WS2812B_NUM_LEDS);
+	    HAL_Delay(1000);
+        break;
+
+
+
+    case STATE_INTERRUPT:
+        // Disable UART1 receive interrupt
+        HAL_UART_AbortReceive_IT(&huart1);
+
+        // Flash LEDs to signal interrupt
+        for (int i = 0; i < 10; i++) {
+            RGB_Color ledPattern[WS2812B_NUM_LEDS];
+            for (int i = 0; i < WS2812B_NUM_LEDS; i++) {
+                ledPattern[i] = (i < WS2812B_NUM_LEDS/2) ? BLUE : RED;
+            }
+            WS2812B_SetLED(WS2812B_PORT, WS2812B_PIN, ledPattern, WS2812B_NUM_LEDS);
+            ssd1306_Fill(Black);
+            ssd1306_UpdateScreen();
+            HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_SET); // Bật còi
+            HAL_Delay(500);
+
+
+            // Invert colors
+            for (int i = 0; i < WS2812B_NUM_LEDS; i++) {
+                ledPattern[i] = (i < WS2812B_NUM_LEDS/2) ? RED : BLUE;
+            }
+            WS2812B_SetLED(WS2812B_PORT, WS2812B_PIN, ledPattern, WS2812B_NUM_LEDS);
+            ssd1306_Fill(White);
+            ssd1306_UpdateScreen();
+            HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_RESET); // Tắt còi
+            HAL_Delay(500);
+
+
+        }
+        A7680C_SendSMS(&sim4g, "0848177013", "Warning!!!! Earthquake!");
+        // Re-enable UART1 interrupt before returning
+        HAL_UART_Receive_IT(&huart1, &pms_rx_byte, 1);
+
+        // Return to normal state
+        currentState = STATE_NORMAL;
+        break;
+
+    case STATE_HOUSEFIRE:
+        // Disable UART1 receive interrupt
+        HAL_UART_AbortReceive_IT(&huart1);
+
+        // Flash LEDs to signal interrupt
+        for (int i = 0; i < 10; i++) {
+            RGB_Color ledPattern[WS2812B_NUM_LEDS];
+            for (int i = 0; i < WS2812B_NUM_LEDS; i++) {
+                ledPattern[i] = (i < WS2812B_NUM_LEDS/2) ? BLUE : RED;
+            }
+            WS2812B_SetLED(WS2812B_PORT, WS2812B_PIN, ledPattern, WS2812B_NUM_LEDS);
+            ssd1306_Fill(Black);
+            ssd1306_UpdateScreen();
+            HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_SET); // Bật còi
+            HAL_Delay(500);
+
+            // Invert colors
+            for (int i = 0; i < WS2812B_NUM_LEDS; i++) {
+                ledPattern[i] = (i < WS2812B_NUM_LEDS/2) ? RED : BLUE;
+            }
+            WS2812B_SetLED(WS2812B_PORT, WS2812B_PIN, ledPattern, WS2812B_NUM_LEDS);
+            ssd1306_Fill(White);
+            ssd1306_UpdateScreen();
+            HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_RESET); // Tắt còi
+            HAL_Delay(500);
+        }
+        A7680C_SendSMS(&sim4g, "0848177013", "Warning!!!! House fire!");
+        // Re-enable UART1 interrupt before returning
+        HAL_UART_Receive_IT(&huart1, &pms_rx_byte, 1);
+
+        // Return to normal state
+        currentState = STATE_NORMAL;
+        break;
+
+    default:
+        currentState = STATE_NORMAL;
+        break;
       }
-      ssd1306_UpdateScreen();
-      HAL_Delay(100);
-
-
-
-
   }
   /* USER CODE END 3 */
 }
@@ -470,6 +655,58 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
+  hadc1.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc1.Init.ScanConvMode = DISABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.NbrOfConversion = 1;
+  hadc1.Init.DMAContinuousRequests = DISABLE;
+  hadc1.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
+  */
+  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Rank = 1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
 }
 
 /**
@@ -630,23 +867,27 @@ static void MX_GPIO_Init(void)
 /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4|GPIO_PIN_6, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : PC13 */
-  GPIO_InitStruct.Pin = GPIO_PIN_13;
+  /*Configure GPIO pin : PA0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PA4 PA6 */
+  GPIO_InitStruct.Pin = GPIO_PIN_4|GPIO_PIN_6;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PB6 */
   GPIO_InitStruct.Pin = GPIO_PIN_6;
@@ -655,12 +896,23 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
-
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    if (GPIO_Pin == GPIO_PIN_0) {
+        // Signal interrupt state
+        currentState = STATE_NORMAL;
+        //STATE_INTERRUPT
+    }
+}
 /* USER CODE END 4 */
 
 /**

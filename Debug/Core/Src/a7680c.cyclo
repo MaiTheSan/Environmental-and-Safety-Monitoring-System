@@ -1,5 +1,0 @@
-../Core/Src/a7680c.c:5:6:A7680C_Init	1
-../Core/Src/a7680c.c:10:6:A7680C_SendCommand	1
-../Core/Src/a7680c.c:21:13:A7680C_GetLastResponse	1
-../Core/Src/a7680c.c:24:6:A7680C_CheckSIMReady	2
-../Core/Src/a7680c.c:30:6:A7680C_SendSMS	4

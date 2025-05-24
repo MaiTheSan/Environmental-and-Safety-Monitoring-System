@@ -34,34 +34,34 @@ $(wildcard ../makefile.init) \
 $(wildcard ../makefile.targets) \
 
 
-BUILD_ARTIFACT_NAME := MainProjects
+BUILD_ARTIFACT_NAME := Final Projects processor and connectivity
 BUILD_ARTIFACT_EXTENSION := elf
 BUILD_ARTIFACT_PREFIX :=
 BUILD_ARTIFACT := $(BUILD_ARTIFACT_PREFIX)$(BUILD_ARTIFACT_NAME)$(if $(BUILD_ARTIFACT_EXTENSION),.$(BUILD_ARTIFACT_EXTENSION),)
 
 # Add inputs and outputs from these tool invocations to the build variables 
 EXECUTABLES += \
-MainProjects.elf \
+Final\ Projects\ processor\ and\ connectivity.elf \
 
 MAP_FILES += \
-MainProjects.map \
+Final\ Projects\ processor\ and\ connectivity.map \
 
 SIZE_OUTPUT += \
 default.size.stdout \
 
 OBJDUMP_LIST += \
-MainProjects.list \
+Final\ Projects\ processor\ and\ connectivity.list \
 
 
 # All Target
 all: main-build
 
 # Main-build Target
-main-build: MainProjects.elf secondary-outputs
+main-build: Final\ Projects\ processor\ and\ connectivity.elf secondary-outputs
 
 # Tool invocations
-MainProjects.elf MainProjects.map: $(OBJS) $(USER_OBJS) E:\Final\ Projects\ STM32\MainProjects\STM32F401CCUX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "MainProjects.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"E:\Final Projects STM32\MainProjects\STM32F401CCUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="MainProjects.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -u _printf_float -u _scanf_float -Wl,--start-group -lc -lm -Wl,--end-group
+Final\ Projects\ processor\ and\ connectivity.elf Final\ Projects\ processor\ and\ connectivity.map: $(OBJS) $(USER_OBJS) E:\Final\ Projects\ STM32\Final\ Projects\ processor\ and\ connectivity\STM32F401CCUX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "Final Projects processor and connectivity.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"E:\Final Projects STM32\Final Projects processor and connectivity\STM32F401CCUX_FLASH.ld" --specs=nosys.specs -Wl,-Map="Final Projects processor and connectivity.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -u _printf_float -u _scanf_float -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
@@ -70,14 +70,14 @@ default.size.stdout: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
 	@echo 'Finished building: $@'
 	@echo ' '
 
-MainProjects.list: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-objdump -h -S $(EXECUTABLES) > "MainProjects.list"
+Final\ Projects\ processor\ and\ connectivity.list: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-objdump -h -S $(EXECUTABLES) > "Final Projects processor and connectivity.list"
 	@echo 'Finished building: $@'
 	@echo ' '
 
 # Other Targets
 clean:
-	-$(RM) MainProjects.elf MainProjects.list MainProjects.map default.size.stdout
+	-$(RM) Final\ Projects\ processor\ and\ connectivity.elf Final\ Projects\ processor\ and\ connectivity.list Final\ Projects\ processor\ and\ connectivity.map Final\\ Projects\\ processor\\ and\\ connectivity.elf default.size.stdout
 	-@echo ' '
 
 secondary-outputs: $(SIZE_OUTPUT) $(OBJDUMP_LIST)
