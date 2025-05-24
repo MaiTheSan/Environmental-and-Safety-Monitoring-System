@@ -909,8 +909,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
     if (GPIO_Pin == GPIO_PIN_0) {
         // Signal interrupt state
-        currentState = STATE_NORMAL;
+        currentState = STATE_INTERRUPT;
         //STATE_INTERRUPT
+        //STATE_NORMAL
     }
 }
 /* USER CODE END 4 */
